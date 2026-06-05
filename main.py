@@ -24,8 +24,7 @@ except ImportError:
 
 
 CONFIG_PATH = Path("config.json")
-DEFAULT_MODEL = "gemma-3-27b-it"
-FALLBACK_MODELS = ["gemma-3-27b-it"]
+DEFAULT_MODEL = ""
 FILE_REQUEST_RE = re.compile(r"```tutorbot-file\s*(\{.*?\})\s*```", re.DOTALL)
 
 SYSTEM_INSTRUCTION = """You are TutorBot, a concise command-line assistant.
@@ -56,11 +55,13 @@ def main() -> int:
     config = load_or_create_config()
     client = genai.Client(api_key=config.api_key)
 
+    available_models = list_generate_content_models(client)
+    config = ensure_model_available(config, available_models)
+    config = choose_session_settings(config, available_models)
+    save_config(config)
+
     if not startup_connectivity_check(client, config):
         return 1
-
-    config = choose_session_settings(config)
-    save_config(config)
 
     print("\nReady. Write your prompt, optionally add an image when asked.\n")
     while True:
@@ -174,21 +175,108 @@ def startup_connectivity_check(client: Any, config: AppConfig) -> bool:
     return True
 
 
-def choose_session_settings(config: AppConfig) -> AppConfig:
+def list_generate_content_models(client: Any) -> list[str]:
+    try:
+        models = []
+        for model in client.models.list():
+            actions = list(getattr(model, "supported_actions", []) or [])
+            if "generateContent" not in actions:
+                continue
+            name = normalize_model_name(str(getattr(model, "name", "")))
+            if name:
+                models.append(name)
+    except Exception as exc:
+        print("Could not list models for this API key.")
+        print_api_error(exc)
+        return []
+
+    return sorted(set(models), key=model_sort_key)
+
+
+def normalize_model_name(name: str) -> str:
+    return name.removeprefix("models/").strip()
+
+
+def model_sort_key(model: str) -> tuple[int, str]:
+    lowered = model.lower()
+    if lowered.startswith("gemma-4"):
+        return (0, lowered)
+    if lowered.startswith("gemma-3"):
+        return (1, lowered)
+    if "gemma" in lowered:
+        return (2, lowered)
+    return (3, lowered)
+
+
+def gemma_models(models: list[str]) -> list[str]:
+    return [model for model in models if "gemma" in model.lower()]
+
+
+def ensure_model_available(config: AppConfig, available_models: list[str]) -> AppConfig:
+    if not available_models:
+        if config.model:
+            return config
+        print("No model list available. You can enter a model name manually.")
+        model = input("Model name> ").strip()
+        if not model:
+            print("Model name is required.")
+            raise SystemExit(1)
+        return AppConfig(
+            api_key=config.api_key,
+            model=model,
+            output_dir=config.output_dir,
+            mode=config.mode,
+        )
+
+    if config.model and config.model in available_models:
+        return config
+
+    choices = gemma_models(available_models)
+    if choices:
+        selected = choices[0]
+        if config.model:
+            print(
+                f"Configured model '{config.model}' is not available for this API key."
+            )
+        print(f"Using available Gemma model: {selected}")
+    else:
+        selected = available_models[0]
+        print("No Gemma models were returned for this API key.")
+        print(f"Using first generateContent model instead: {selected}")
+
+    return AppConfig(
+        api_key=config.api_key,
+        model=selected,
+        output_dir=config.output_dir,
+        mode=config.mode,
+    )
+
+
+def choose_session_settings(config: AppConfig, available_models: list[str]) -> AppConfig:
+    models = gemma_models(available_models) or available_models
+
     print("Model options:")
-    for index, model in enumerate(FALLBACK_MODELS, start=1):
-        marker = " (current)" if model == config.model else ""
-        print(f"  {index}. {model}{marker}")
-    print("  2. Enter custom model name")
+    if models:
+        for index, model in enumerate(models, start=1):
+            marker = " (current)" if model == config.model else ""
+            print(f"  {index}. {model}{marker}")
+        custom_index = len(models) + 1
+        print(f"  {custom_index}. Enter custom model name")
+    else:
+        custom_index = 1
+        print("  1. Enter custom model name")
+
     choice = input(f"Choose model [current: {config.model}]> ").strip()
 
     model = config.model
-    if choice == "1":
-        model = FALLBACK_MODELS[0]
-    elif choice == "2":
+    if choice.isdigit() and models and 1 <= int(choice) <= len(models):
+        model = models[int(choice) - 1]
+    elif choice == str(custom_index):
         custom = input("Model name> ").strip()
         if custom:
-            model = custom
+            model = normalize_model_name(custom)
+    elif choice:
+        print("Unknown choice, keeping current model.")
 
     print("\nMode options:")
     print("  1. standard")

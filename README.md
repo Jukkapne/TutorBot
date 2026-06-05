@@ -23,6 +23,7 @@ On first run, TutorBot creates `config.json` and asks for your API key. `config.
 
 - Connects to Gemma models through the Gemini API.
 - Checks connectivity when the program starts.
+- Lists the models available for your API key and prefers Gemma models when present.
 - Lets you choose the model and standard or high-thinking mode when the selected model supports it.
 - Accepts text prompts.
 - Accepts an optional image URL or local image path after each prompt.
@@ -30,7 +31,7 @@ On first run, TutorBot creates `config.json` and asks for your API key. `config.
 
 ## Notes
 
-- Default model: `gemma-3-27b-it`, matching Google's Gemma-on-Gemini API example.
+- The program asks the Gemini API which `generateContent` models your API key can access, then prefers Gemma models from that list.
 - You can enter a custom model name at startup if Google AI Studio exposes another model for your key.
 - Generated files are written only after approval and default to `outputs/`, which is ignored by git.
 - This is intentionally a simple `python main.py` demo, not a packaged application.
