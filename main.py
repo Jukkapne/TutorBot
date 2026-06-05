@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simple Gemma/Gemini API command-line demo."""
+"""Simple Gemma/Gemini API command-line demo.."""
 
 from __future__ import annotations
 
